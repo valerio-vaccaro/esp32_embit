@@ -23,8 +23,10 @@ ST77XX_RAMWR = const(0x2C)
 ST77XX_RAMRD = const(0x2E)
 
 ST77XX_PTLAR = const(0x30)
+ST7789_VSCRDEF = const(0x33)
 ST77XX_COLMOD = const(0x3A)
 ST7789_MADCTL = const(0x36)
+ST7789_VSCSAD = const(0x37)
 
 ST7789_MADCTL_MY = const(0x80)
 ST7789_MADCTL_MX = const(0x40)
@@ -61,6 +63,15 @@ _ENCODE_POS = ">HH"
 _DECODE_PIXEL = ">BBB"
 
 _BUFFER_SIZE = const(256)
+
+_BIT7 = const(0x80)
+_BIT6 = const(0x40)
+_BIT5 = const(0x20)
+_BIT4 = const(0x10)
+_BIT3 = const(0x08)
+_BIT2 = const(0x04)
+_BIT1 = const(0x02)
+_BIT0 = const(0x01)
 
 
 def delay_ms(ms):
@@ -293,6 +304,314 @@ class ST77xx:
                 y0 += ystep
                 err += dx
             x0 += 1
+
+    def vscrdef(self, tfa, vsa, bfa):
+        """
+        Set Vertical Scrolling Definition.
+        To scroll a 135x240 display these values should be 40, 240, 40.
+        There are 40 lines above the display that are not shown followed by
+        240 lines that are shown followed by 40 more lines that are not shown.
+        You could write to these areas off display and scroll them into view by
+        changing the TFA, VSA and BFA values.
+        Args:
+            tfa (int): Top Fixed Area
+            vsa (int): Vertical Scrolling Area
+            bfa (int): Bottom Fixed Area
+        """
+        struct.pack(">HHH", tfa, vsa, bfa)
+        self.write(ST7789_VSCRDEF, struct.pack(">HHH", tfa, vsa, bfa))
+
+    def vscsad(self, vssa):
+        """
+        Set Vertical Scroll Start Address of RAM.
+        Defines which line in the Frame Memory will be written as the first
+        line after the last line of the Top Fixed Area on the display
+        Example:
+            for line in range(40, 280, 1):
+                tft.vscsad(line)
+                utime.sleep(0.01)
+        Args:
+            vssa (int): Vertical Scrolling Start Address
+        """
+        self.write(ST7789_VSCSAD, struct.pack(">H", vssa))
+
+    def _text8(self, font, text, x0, y0, color=WHITE, background=BLACK):
+        """
+        Internal method to write characters with width of 8 and
+        heights of 8 or 16.
+        Args:
+            font (module): font module to use
+            text (str): text to write
+            x0 (int): column to start drawing at
+            y0 (int): row to start drawing at
+            color (int): 565 encoded color to use for characters
+            background (int): 565 encoded color to use for background
+        """
+        for char in text:
+            ch = ord(char)
+            if (font.FIRST <= ch < font.LAST
+                    and x0+font.WIDTH <= self.width
+                    and y0+font.HEIGHT <= self.height):
+
+                if font.HEIGHT == 8:
+                    passes = 1
+                    size = 8
+                    each = 0
+                else:
+                    passes = 2
+                    size = 16
+                    each = 8
+
+                for line in range(passes):
+                    idx = (ch-font.FIRST)*size+(each*line)
+                    buffer = struct.pack('>64H',
+                        color if font.FONT[idx] & _BIT7 else background,
+                        color if font.FONT[idx] & _BIT6 else background,
+                        color if font.FONT[idx] & _BIT5 else background,
+                        color if font.FONT[idx] & _BIT4 else background,
+                        color if font.FONT[idx] & _BIT3 else background,
+                        color if font.FONT[idx] & _BIT2 else background,
+                        color if font.FONT[idx] & _BIT1 else background,
+                        color if font.FONT[idx] & _BIT0 else background,
+                        color if font.FONT[idx+1] & _BIT7 else background,
+                        color if font.FONT[idx+1] & _BIT6 else background,
+                        color if font.FONT[idx+1] & _BIT5 else background,
+                        color if font.FONT[idx+1] & _BIT4 else background,
+                        color if font.FONT[idx+1] & _BIT3 else background,
+                        color if font.FONT[idx+1] & _BIT2 else background,
+                        color if font.FONT[idx+1] & _BIT1 else background,
+                        color if font.FONT[idx+1] & _BIT0 else background,
+                        color if font.FONT[idx+2] & _BIT7 else background,
+                        color if font.FONT[idx+2] & _BIT6 else background,
+                        color if font.FONT[idx+2] & _BIT5 else background,
+                        color if font.FONT[idx+2] & _BIT4 else background,
+                        color if font.FONT[idx+2] & _BIT3 else background,
+                        color if font.FONT[idx+2] & _BIT2 else background,
+                        color if font.FONT[idx+2] & _BIT1 else background,
+                        color if font.FONT[idx+2] & _BIT0 else background,
+                        color if font.FONT[idx+3] & _BIT7 else background,
+                        color if font.FONT[idx+3] & _BIT6 else background,
+                        color if font.FONT[idx+3] & _BIT5 else background,
+                        color if font.FONT[idx+3] & _BIT4 else background,
+                        color if font.FONT[idx+3] & _BIT3 else background,
+                        color if font.FONT[idx+3] & _BIT2 else background,
+                        color if font.FONT[idx+3] & _BIT1 else background,
+                        color if font.FONT[idx+3] & _BIT0 else background,
+                        color if font.FONT[idx+4] & _BIT7 else background,
+                        color if font.FONT[idx+4] & _BIT6 else background,
+                        color if font.FONT[idx+4] & _BIT5 else background,
+                        color if font.FONT[idx+4] & _BIT4 else background,
+                        color if font.FONT[idx+4] & _BIT3 else background,
+                        color if font.FONT[idx+4] & _BIT2 else background,
+                        color if font.FONT[idx+4] & _BIT1 else background,
+                        color if font.FONT[idx+4] & _BIT0 else background,
+                        color if font.FONT[idx+5] & _BIT7 else background,
+                        color if font.FONT[idx+5] & _BIT6 else background,
+                        color if font.FONT[idx+5] & _BIT5 else background,
+                        color if font.FONT[idx+5] & _BIT4 else background,
+                        color if font.FONT[idx+5] & _BIT3 else background,
+                        color if font.FONT[idx+5] & _BIT2 else background,
+                        color if font.FONT[idx+5] & _BIT1 else background,
+                        color if font.FONT[idx+5] & _BIT0 else background,
+                        color if font.FONT[idx+6] & _BIT7 else background,
+                        color if font.FONT[idx+6] & _BIT6 else background,
+                        color if font.FONT[idx+6] & _BIT5 else background,
+                        color if font.FONT[idx+6] & _BIT4 else background,
+                        color if font.FONT[idx+6] & _BIT3 else background,
+                        color if font.FONT[idx+6] & _BIT2 else background,
+                        color if font.FONT[idx+6] & _BIT1 else background,
+                        color if font.FONT[idx+6] & _BIT0 else background,
+                        color if font.FONT[idx+7] & _BIT7 else background,
+                        color if font.FONT[idx+7] & _BIT6 else background,
+                        color if font.FONT[idx+7] & _BIT5 else background,
+                        color if font.FONT[idx+7] & _BIT4 else background,
+                        color if font.FONT[idx+7] & _BIT3 else background,
+                        color if font.FONT[idx+7] & _BIT2 else background,
+                        color if font.FONT[idx+7] & _BIT1 else background,
+                        color if font.FONT[idx+7] & _BIT0 else background
+                    )
+                    self.blit_buffer(buffer, x0, y0+8*line, 8, 8)
+
+                x0 += 8
+
+    def _text16(self, font, text, x0, y0, color=WHITE, background=BLACK):
+        """
+        Internal method to draw characters with width of 16 and heights of 16
+        or 32.
+        Args:
+            font (module): font module to use
+            text (str): text to write
+            x0 (int): column to start drawing at
+            y0 (int): row to start drawing at
+            color (int): 565 encoded color to use for characters
+            background (int): 565 encoded color to use for background
+        """
+        for char in text:
+            ch = ord(char)
+            if (font.FIRST <= ch < font.LAST
+                    and x0+font.WIDTH <= self.width
+                    and y0+font.HEIGHT <= self.height):
+
+                if font.HEIGHT == 16:
+                    passes = 2
+                    size = 32
+                    each = 16
+                else:
+                    passes = 4
+                    size = 64
+                    each = 16
+
+                for line in range(passes):
+                    idx = (ch-font.FIRST)*size+(each*line)
+                    buffer = struct.pack('>128H',
+                        color if font.FONT[idx] & _BIT7 else background,
+                        color if font.FONT[idx] & _BIT6 else background,
+                        color if font.FONT[idx] & _BIT5 else background,
+                        color if font.FONT[idx] & _BIT4 else background,
+                        color if font.FONT[idx] & _BIT3 else background,
+                        color if font.FONT[idx] & _BIT2 else background,
+                        color if font.FONT[idx] & _BIT1 else background,
+                        color if font.FONT[idx] & _BIT0 else background,
+                        color if font.FONT[idx+1] & _BIT7 else background,
+                        color if font.FONT[idx+1] & _BIT6 else background,
+                        color if font.FONT[idx+1] & _BIT5 else background,
+                        color if font.FONT[idx+1] & _BIT4 else background,
+                        color if font.FONT[idx+1] & _BIT3 else background,
+                        color if font.FONT[idx+1] & _BIT2 else background,
+                        color if font.FONT[idx+1] & _BIT1 else background,
+                        color if font.FONT[idx+1] & _BIT0 else background,
+                        color if font.FONT[idx+2] & _BIT7 else background,
+                        color if font.FONT[idx+2] & _BIT6 else background,
+                        color if font.FONT[idx+2] & _BIT5 else background,
+                        color if font.FONT[idx+2] & _BIT4 else background,
+                        color if font.FONT[idx+2] & _BIT3 else background,
+                        color if font.FONT[idx+2] & _BIT2 else background,
+                        color if font.FONT[idx+2] & _BIT1 else background,
+                        color if font.FONT[idx+2] & _BIT0 else background,
+                        color if font.FONT[idx+3] & _BIT7 else background,
+                        color if font.FONT[idx+3] & _BIT6 else background,
+                        color if font.FONT[idx+3] & _BIT5 else background,
+                        color if font.FONT[idx+3] & _BIT4 else background,
+                        color if font.FONT[idx+3] & _BIT3 else background,
+                        color if font.FONT[idx+3] & _BIT2 else background,
+                        color if font.FONT[idx+3] & _BIT1 else background,
+                        color if font.FONT[idx+3] & _BIT0 else background,
+                        color if font.FONT[idx+4] & _BIT7 else background,
+                        color if font.FONT[idx+4] & _BIT6 else background,
+                        color if font.FONT[idx+4] & _BIT5 else background,
+                        color if font.FONT[idx+4] & _BIT4 else background,
+                        color if font.FONT[idx+4] & _BIT3 else background,
+                        color if font.FONT[idx+4] & _BIT2 else background,
+                        color if font.FONT[idx+4] & _BIT1 else background,
+                        color if font.FONT[idx+4] & _BIT0 else background,
+                        color if font.FONT[idx+5] & _BIT7 else background,
+                        color if font.FONT[idx+5] & _BIT6 else background,
+                        color if font.FONT[idx+5] & _BIT5 else background,
+                        color if font.FONT[idx+5] & _BIT4 else background,
+                        color if font.FONT[idx+5] & _BIT3 else background,
+                        color if font.FONT[idx+5] & _BIT2 else background,
+                        color if font.FONT[idx+5] & _BIT1 else background,
+                        color if font.FONT[idx+5] & _BIT0 else background,
+                        color if font.FONT[idx+6] & _BIT7 else background,
+                        color if font.FONT[idx+6] & _BIT6 else background,
+                        color if font.FONT[idx+6] & _BIT5 else background,
+                        color if font.FONT[idx+6] & _BIT4 else background,
+                        color if font.FONT[idx+6] & _BIT3 else background,
+                        color if font.FONT[idx+6] & _BIT2 else background,
+                        color if font.FONT[idx+6] & _BIT1 else background,
+                        color if font.FONT[idx+6] & _BIT0 else background,
+                        color if font.FONT[idx+7] & _BIT7 else background,
+                        color if font.FONT[idx+7] & _BIT6 else background,
+                        color if font.FONT[idx+7] & _BIT5 else background,
+                        color if font.FONT[idx+7] & _BIT4 else background,
+                        color if font.FONT[idx+7] & _BIT3 else background,
+                        color if font.FONT[idx+7] & _BIT2 else background,
+                        color if font.FONT[idx+7] & _BIT1 else background,
+                        color if font.FONT[idx+7] & _BIT0 else background,
+                        color if font.FONT[idx+8] & _BIT7 else background,
+                        color if font.FONT[idx+8] & _BIT6 else background,
+                        color if font.FONT[idx+8] & _BIT5 else background,
+                        color if font.FONT[idx+8] & _BIT4 else background,
+                        color if font.FONT[idx+8] & _BIT3 else background,
+                        color if font.FONT[idx+8] & _BIT2 else background,
+                        color if font.FONT[idx+8] & _BIT1 else background,
+                        color if font.FONT[idx+8] & _BIT0 else background,
+                        color if font.FONT[idx+9] & _BIT7 else background,
+                        color if font.FONT[idx+9] & _BIT6 else background,
+                        color if font.FONT[idx+9] & _BIT5 else background,
+                        color if font.FONT[idx+9] & _BIT4 else background,
+                        color if font.FONT[idx+9] & _BIT3 else background,
+                        color if font.FONT[idx+9] & _BIT2 else background,
+                        color if font.FONT[idx+9] & _BIT1 else background,
+                        color if font.FONT[idx+9] & _BIT0 else background,
+                        color if font.FONT[idx+10] & _BIT7 else background,
+                        color if font.FONT[idx+10] & _BIT6 else background,
+                        color if font.FONT[idx+10] & _BIT5 else background,
+                        color if font.FONT[idx+10] & _BIT4 else background,
+                        color if font.FONT[idx+10] & _BIT3 else background,
+                        color if font.FONT[idx+10] & _BIT2 else background,
+                        color if font.FONT[idx+10] & _BIT1 else background,
+                        color if font.FONT[idx+10] & _BIT0 else background,
+                        color if font.FONT[idx+11] & _BIT7 else background,
+                        color if font.FONT[idx+11] & _BIT6 else background,
+                        color if font.FONT[idx+11] & _BIT5 else background,
+                        color if font.FONT[idx+11] & _BIT4 else background,
+                        color if font.FONT[idx+11] & _BIT3 else background,
+                        color if font.FONT[idx+11] & _BIT2 else background,
+                        color if font.FONT[idx+11] & _BIT1 else background,
+                        color if font.FONT[idx+11] & _BIT0 else background,
+                        color if font.FONT[idx+12] & _BIT7 else background,
+                        color if font.FONT[idx+12] & _BIT6 else background,
+                        color if font.FONT[idx+12] & _BIT5 else background,
+                        color if font.FONT[idx+12] & _BIT4 else background,
+                        color if font.FONT[idx+12] & _BIT3 else background,
+                        color if font.FONT[idx+12] & _BIT2 else background,
+                        color if font.FONT[idx+12] & _BIT1 else background,
+                        color if font.FONT[idx+12] & _BIT0 else background,
+                        color if font.FONT[idx+13] & _BIT7 else background,
+                        color if font.FONT[idx+13] & _BIT6 else background,
+                        color if font.FONT[idx+13] & _BIT5 else background,
+                        color if font.FONT[idx+13] & _BIT4 else background,
+                        color if font.FONT[idx+13] & _BIT3 else background,
+                        color if font.FONT[idx+13] & _BIT2 else background,
+                        color if font.FONT[idx+13] & _BIT1 else background,
+                        color if font.FONT[idx+13] & _BIT0 else background,
+                        color if font.FONT[idx+14] & _BIT7 else background,
+                        color if font.FONT[idx+14] & _BIT6 else background,
+                        color if font.FONT[idx+14] & _BIT5 else background,
+                        color if font.FONT[idx+14] & _BIT4 else background,
+                        color if font.FONT[idx+14] & _BIT3 else background,
+                        color if font.FONT[idx+14] & _BIT2 else background,
+                        color if font.FONT[idx+14] & _BIT1 else background,
+                        color if font.FONT[idx+14] & _BIT0 else background,
+                        color if font.FONT[idx+15] & _BIT7 else background,
+                        color if font.FONT[idx+15] & _BIT6 else background,
+                        color if font.FONT[idx+15] & _BIT5 else background,
+                        color if font.FONT[idx+15] & _BIT4 else background,
+                        color if font.FONT[idx+15] & _BIT3 else background,
+                        color if font.FONT[idx+15] & _BIT2 else background,
+                        color if font.FONT[idx+15] & _BIT1 else background,
+                        color if font.FONT[idx+15] & _BIT0 else background
+                    )
+                    self.blit_buffer(buffer, x0, y0+8*line, 16, 8)
+            x0 += font.WIDTH
+
+    def text(self, font, text, x0, y0, color=WHITE, background=BLACK):
+        """
+        Draw text on display in specified font and colors. 8 and 16 bit wide
+        fonts are supported.
+        Args:
+            font (module): font module to use.
+            text (str): text to write
+            x0 (int): column to start drawing at
+            y0 (int): row to start drawing at
+            color (int): 565 encoded color to use for characters
+            background (int): 565 encoded color to use for background
+        """
+        if font.WIDTH == 8:
+            self._text8(font, text, x0, y0, color, background)
+        else:
+            self._text16(font, text, x0, y0, color, background)
 
 
 class ST7789(ST77xx):

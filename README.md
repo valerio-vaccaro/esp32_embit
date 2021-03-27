@@ -41,7 +41,9 @@ No color & text support yet, but the display is working.
 
 ```py
 from m5 import display
+from fonts import vga2_bold_16x32 as font
 display.fill(255)
 display.off()
 display.on()
+display.text(font, "embit", 5, 5, 0x00ff00, 0x0000ff)
 ```
