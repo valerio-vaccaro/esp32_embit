@@ -1,3 +1,4 @@
+# modified using https://github.com/russhughes/st7789py_mpy/ code
 import time
 from micropython import const
 import ustruct as struct
@@ -91,8 +92,22 @@ def color565(r, g=0, b=0):
 
 class ST77xx:
     def __init__(self, spi, width, height, reset, dc, cs=None, backlight=None,
-                 xstart=-1, ystart=-1):
+                 xstart=-1, ystart=-1, rotation=0):
         """
+        ST77xx driver class
+
+        Args:
+            spi (spi): spi object
+            width (int): display width
+            height (int): display height
+            reset (pin): reset pin
+            dc (pin): dc pin
+            cs (pin): cs pin
+            backlight(pin): backlight pin
+            xstart (int): display xstart offset
+            ystart (int): display ystart offset
+            rotation (int): display rotation
+
         display = st7789.ST7789(
             SPI(1, baudrate=40000000, phase=0, polarity=1),
             240, 240,
@@ -101,8 +116,13 @@ class ST77xx:
         )
 
         """
-        self.width = width
-        self.height = height
+        if (width, height) != (240, 240) and (width, height) != (135, 240):
+            raise ValueError(
+                "Unsupported display. Only 240x240 and 135x240 are supported."
+            )
+
+        self._display_width = self.width = width
+        self._display_height = self.height = height
         self.spi = spi
         if spi is None:
             import machine
@@ -111,6 +131,7 @@ class ST77xx:
         self.dc = dc
         self.cs = cs
         self.backlight = backlight
+        self._rotation = rotation % 4
         if xstart >= 0 and ystart >= 0:
             self.xstart = xstart
             self.ystart = ystart
@@ -192,6 +213,47 @@ class ST77xx:
         self.hard_reset()
         self.soft_reset()
         self.sleep_mode(False)
+
+    def rotation(self, rotation):
+        """
+        Set display rotation.
+        Args:
+            rotation (int): 0-Portrait, 1-Landscape, 2-Inverted Portrait,
+            3-Inverted Landscape
+        """
+        self._rotation = rotation % 4
+        if self._rotation == 0:         # Portrait
+            madctl = ST7789_MADCTL_RGB
+            self.width = self._display_width
+            self.height = self._display_height
+            if self._display_width == 135:
+                self.xstart = 52
+                self.ystart = 40
+
+        elif self._rotation == 1:       # Landscape
+            madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MV | ST7789_MADCTL_RGB
+            self.width = self._display_height
+            self.height = self._display_width
+            if self._display_width == 135:
+                self.xstart = 40
+                self.ystart = 53
+
+        elif self._rotation == 2:       # Inverted Portrait
+            madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MY | ST7789_MADCTL_RGB
+            self.width = self._display_width
+            self.height = self._display_height
+            if self._display_width == 135:
+                self.xstart = 53
+                self.ystart = 40
+        else:                           # Inverted Landscape
+            madctl = ST7789_MADCTL_MV | ST7789_MADCTL_MY | ST7789_MADCTL_RGB
+            self.width = self._display_height
+            self.height = self._display_width
+            if self._display_width == 135:
+                self.xstart = 40
+                self.ystart = 52
+
+        self.write(ST7789_MADCTL, bytes([madctl]))
 
     def _set_mem_access_mode(self, rotation, vert_mirror, horz_mirror, is_bgr):
         rotation &= 7

@@ -41,9 +41,12 @@ No color & text support yet, but the display is working.
 
 ```py
 from m5 import display
-from fonts import vga2_bold_16x32 as font
-display.fill(255)
+from fonts import vga2_bold_16x32 as font_big
+from fonts import vga1_8x8 as font_little
+display.fill(0x0000ff)
 display.off()
 display.on()
-display.text(font, "embit", 5, 5, 0x00ff00, 0x0000ff)
+display.rotation(1)
+display.text(font_big, "embit", 5, 5, 0x00ff00, 0x0000ff)
+display.text(font_little, "on esp32", 5, 40, 0x00ff00, 0x0000ff)
 ```
