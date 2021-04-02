@@ -7,7 +7,7 @@ axp = AXP192(hw_i2c_0)
 axp.setup()
 
 spi = SPI(1, baudrate=27000000, polarity=0, phase=0, bits=8, firstbit=0, sck=Pin(13), mosi=Pin(15))
-display = st7789py.ST7789(spi, 135, 240, reset=Pin(18, Pin.OUT), dc=Pin(23, Pin.OUT), cs=Pin(5, Pin.OUT))
+display = st7789py.ST7789(spi, 80, 160, reset=Pin(18, Pin.OUT), dc=Pin(23, Pin.OUT), cs=Pin(5, Pin.OUT), xstart=0, ystart=0)
 display.init()
 
 def backlight(status=True):
