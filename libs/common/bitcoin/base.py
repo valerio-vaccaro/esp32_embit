@@ -9,6 +9,12 @@ class EmbitError(Exception):
     pass
 
 
+def copy(a:bytes) -> bytes:
+    """Ugly copy that works everywhere incl micropython"""
+    if len(a) == 0:
+        return b""
+    return a[:1] + a[1:]
+
 class EmbitBase:
     @classmethod
     def read_from(cls, stream, *args, **kwargs):
@@ -49,7 +55,7 @@ class EmbitBase:
     def from_string(cls, s, *args, **kwargs):
         """Default string representation is hex of serialized instance or base58 if availabe"""
         if hasattr(cls, "from_base58"):
-            return cls.from_base58(*args, **kwargs)
+            return cls.from_base58(s, *args, **kwargs)
         return cls.parse(unhexlify(s))
 
     def __str__(self):

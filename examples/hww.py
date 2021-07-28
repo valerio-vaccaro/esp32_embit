@@ -183,6 +183,15 @@ def signmessage(path, message):
     return signature
 
 def decodepsbt(psbtstr):
+    seed = bip39.mnemonic_to_seed(WALLET['mnemonic'])
+    if WALLET['network'] == 'mainnet':
+        root = bip32.HDKey.from_seed(seed, version=NETWORKS['main']['xprv'])
+    elif WALLET['network'] == 'testnet':
+        root = bip32.HDKey.from_seed(seed, version=NETWORKS['test']['xprv'])
+    else:
+        root = None
+    fingerprint = root.child(0).fingerprint
+    
     tx = psbt.PSBT.parse(a2b_base64(psbtstr))
     # print how much we are spending and where
     total_in = 0
@@ -197,18 +206,18 @@ def decodepsbt(psbtstr):
         # check if it is a change or not:
         change = False
         # should be one or zero for single-key addresses
-        # for pub in out.bip32_derivations:
-        #     # check if it is our key
-        #     if out.bip32_derivations[pub].fingerprint == fingerprint:
-        #         hdkey = root.derive(out.bip32_derivations[pub].derivation)
-        #         mypub = hdkey.key.get_public_key()
-        #         if mypub != pub:
-        #             raise ValueError("Derivation path doesn't look right")
-        #         # now check if provided scriptpubkey matches
-        #         sc = script.p2wpkh(mypub)
-        #         if sc == tx.tx.vout[i].script_pubkey:
-        #             change = True
-        #             continue
+        for pub in out.bip32_derivations:
+            # check if it is our key
+            if out.bip32_derivations[pub].fingerprint == fingerprint:
+                hdkey = root.derive(out.bip32_derivations[pub].derivation)
+                mypub = hdkey.key.get_public_key()
+                if mypub != pub:
+                    raise ValueError("Derivation path doesn't look right")
+                # now check if provided scriptpubkey matches
+                sc = script.p2wpkh(mypub)
+                if sc == tx.tx.vout[i].script_pubkey:
+                    change = True
+                    continue
         if change:
             change_out += tx.tx.vout[i].value
         else:

@@ -1,9 +1,5 @@
 import sys
-
-if sys.implementation.name == "micropython":
-    import hashlib
-else:
-    from .util import hashlib
+import hashlib
 
 
 def double_sha256(msg):
@@ -13,7 +9,7 @@ def double_sha256(msg):
 
 def hash160(msg):
     """ripemd160(sha256(msg)) -> bytes"""
-    return hashlib.ripemd160(hashlib.sha256(msg).digest()).digest()
+    return hashlib.new('ripemd160', hashlib.sha256(msg).digest()).digest()
 
 
 def sha256(msg):
@@ -23,4 +19,16 @@ def sha256(msg):
 
 def ripemd160(msg):
     """one-line rmd160(msg) -> bytes"""
-    return hashlib.ripemd160(msg).digest()
+    return hashlib.new('ripemd160', msg).digest()
+
+
+def tagged_hash(tag: str, data: bytes) -> bytes:
+    """BIP-Schnorr tag-specific key derivation"""
+    hashtag = hashlib.sha256(tag.encode()).digest()
+    return hashlib.sha256(hashtag + hashtag + data).digest()
+
+def tagged_hash_init(tag: str, data: bytes):
+    """Prepares a tagged hash function to digest extra data"""
+    hashtag = hashlib.sha256(tag.encode()).digest()
+    h = hashlib.sha256(hashtag + hashtag + data)
+    return h

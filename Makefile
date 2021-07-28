@@ -6,7 +6,7 @@ FROZEN_MANIFEST_FULL ?= ../../../manifests/esp32.py
 FROZEN_MANIFEST_UNIX ?= ../../../manifests/unix.py
 DEBUG ?= 0
 
-PORT ?= /dev/ttyUSB0
+PORT ?= /dev/cu.usbserial-25525004F3
 BAUD ?= 115200
 FLASH_MODE ?= dio
 FLASH_FREQ ?= 80m

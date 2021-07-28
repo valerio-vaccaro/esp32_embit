@@ -1,18 +1,18 @@
 import sys
 
 if sys.implementation.name == "micropython":
-    import hashlib
     import secp256k1
 else:
-    from .util import hashlib, secp256k1
+    from .util import secp256k1
+import hashlib
 from . import ec
-from .base import EmbitKey, EmbitError
+from .base import EmbitKey, EmbitError, copy
 from .networks import NETWORKS
 from . import base58
 from . import hashes
+import hmac
 from binascii import hexlify
 import io
-
 
 class HDError(EmbitError):
     pass
@@ -43,6 +43,7 @@ class HDKey(EmbitKey):
         self.chain_code = chain_code
         self.depth = depth
         self.fingerprint = fingerprint
+        self._my_fingerprint = None
         self.child_number = child_number
         # check that base58[1:4] is "prv" or "pub"
         if self.is_private and self.to_base58()[1:4] != "prv":
@@ -53,7 +54,7 @@ class HDKey(EmbitKey):
     @classmethod
     def from_seed(cls, seed: bytes, version=NETWORKS["main"]["xprv"]):
         """Creates a root private key from 64-byte seed"""
-        raw = hashlib.hmac_sha512(b"Bitcoin seed", seed)
+        raw = hmac.new(b"Bitcoin seed", seed, digestmod='sha512').digest()
         private_key = ec.PrivateKey(raw[:32])
         chain_code = raw[32:]
         return cls(private_key, chain_code, version=version)
@@ -64,9 +65,22 @@ class HDKey(EmbitKey):
         return cls.parse(b)
 
     @property
+    def my_fingerprint(self):
+        if self._my_fingerprint is None:
+            sec = self.sec()
+            self._my_fingerprint = hashes.hash160(sec)[:4]
+        return self._my_fingerprint
+
+    @property
     def is_private(self) -> bool:
         """ checks if the HDKey is private or public """
         return self.key.is_private
+
+    @property
+    def secret(self):
+        if not self.is_private:
+            raise HDError("Key is not private")
+        return self.key.secret
 
     def write_to(self, stream, version=None) -> int:
         if version is None:
@@ -142,9 +156,25 @@ class HDKey(EmbitKey):
             child_number=self.child_number,
         )
 
+    def get_public_key(self):
+        return self.key.get_public_key() if self.is_private else self.key
+
     def sec(self) -> bytes:
         """Returns SEC serialization of the public key"""
         return self.key.sec()
+
+    def xonly(self) -> bytes:
+        return self.key.xonly()
+
+    def taproot_tweak(self, h=b""):
+        return HDKey(
+            self.key.taproot_tweak(h),
+            self.chain_code,
+            version=self.version,
+            depth=self.depth,
+            fingerprint=self.fingerprint,
+            child_number=self.child_number,
+        )
 
     def child(self, index: int, hardened: bool = False):
         """Derives a child HDKey"""
@@ -164,7 +194,7 @@ class HDKey(EmbitKey):
             data = b"\x00" + self.key.serialize() + index.to_bytes(4, "big")
         else:
             data = sec + index.to_bytes(4, "big")
-        raw = hashlib.hmac_sha512(self.chain_code, data)
+        raw = hmac.new(self.chain_code, data, digestmod='sha512').digest()
         secret = raw[:32]
         chain_code = raw[32:]
         if self.is_private:
@@ -172,13 +202,13 @@ class HDKey(EmbitKey):
             key = ec.PrivateKey(secret)
         else:
             # copy of internal secp256k1 point structure
-            point = self.key._point[:]
+            point = copy(self.key._point)
             point = secp256k1.ec_pubkey_add(point, secret)
             key = ec.PublicKey(point)
         return HDKey(
             key,
             chain_code,
-            version=self.version[:],
+            version=self.version,
             depth=self.depth + 1,
             fingerprint=fingerprint,
             child_number=index,
@@ -200,12 +230,16 @@ class HDKey(EmbitKey):
             raise HDError("HD public key can't sign")
         return self.key.sign(msg_hash)
 
-    def verify(self, sig: ec.Signature, msg_hash: bytes) -> bool:
-        """Verifies a signature agains 32-byte message hash"""
-        if self.is_private:
-            return self.key.get_public_key().verify(sig, msg_hash)
-        else:
-            return self.key.verify(sig, msg_hash)
+    def schnorr_sign(self, msg_hash):
+        if not self.is_private:
+            raise HDError("HD public key can't sign")
+        return self.key.schnorr_sign(msg_hash)
+
+    def verify(self, sig, msg_hash) -> bool:
+        return self.key.verify(sig, msg_hash)
+
+    def schnorr_verify(self, sig, msg_hash) -> bool:
+        return self.key.schnorr_verify(sig, msg_hash)
 
     def __eq__(self, other):
         # skip version

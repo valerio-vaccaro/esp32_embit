@@ -9,7 +9,8 @@ from .arguments import Key
 
 
 class Descriptor(DescriptorBase):
-    def __init__(self, miniscript=None, sh=False, wsh=True, key=None, wpkh=True):
+    def __init__(self, miniscript=None, sh=False, wsh=True, key=None, wpkh=True, taproot=False):
+        # TODO: add support for taproot scripts
         if key is None and miniscript is None:
             raise DescriptorError("Provide either miniscript or a key")
         if miniscript is not None:
@@ -33,11 +34,44 @@ class Descriptor(DescriptorBase):
         self.key = key
         self.miniscript = miniscript
         self.wpkh = wpkh
+        self.taproot = taproot
+        # make sure all keys are either taproot or not
+        for k in self.keys:
+            k.taproot = taproot
+
+    @property
+    def script_len(self):
+        if self.taproot:
+            return 34 # OP_1 <32:xonly>
+        if self.miniscript:
+            return len(self.miniscript)
+        if self.wpkh:
+            return 22 # 00 <20:pkh>
+        return 25 # OP_DUP OP_HASH160 <20:pkh> OP_EQUALVERIFY OP_CHECKSIG
 
     @property
     def num_branches(self):
-        branches = [k.branches for k in self.keys if k.branches is not None]
-        return 1 if len(branches) == 0 else len(branches[0])
+        return max([k.num_branches for k in self.keys])
+
+    def branch(self, branch_index=None):
+        if self.miniscript:
+            return type(self)(
+                self.miniscript.branch(branch_index),
+                self.sh,
+                self.wsh,
+                None,
+                self.wpkh,
+                self.taproot,
+            )
+        else:
+            return type(self)(
+                None, self.sh, self.wsh, self.key.branch(branch_index), self.wpkh, self.taproot
+            )
+
+
+    @property
+    def is_wildcard(self):
+        return any([key.is_wildcard for key in self.keys])
 
     @property
     def is_wrapped(self):
@@ -49,11 +83,16 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_segwit(self):
-        return (self.wsh and self.miniscript) or (self.wpkh and self.key)
+        # TODO: is taproot segwit?
+        return (self.wsh and self.miniscript) or (self.wpkh and self.key) or self.taproot
 
     @property
     def is_pkh(self):
-        return self.key is not None
+        return self.key is not None and not self.taproot
+
+    @property
+    def is_taproot(self):
+        return self.taproot
 
     @property
     def is_basic_multisig(self):
@@ -62,6 +101,19 @@ class Descriptor(DescriptorBase):
     @property
     def is_sorted(self):
         return self.is_basic_multisig and self.miniscript.NAME == "sortedmulti"
+
+    def scriptpubkey_type(self):
+        if self.is_taproot:
+            return "p2tr"
+        if self.sh:
+            return "p2sh"
+        if self.is_pkh:
+            if self.is_legacy:
+                return "p2pkh"
+            if self.is_segwit:
+                return "p2wpkh"
+        else:
+            return "p2wsh"
 
     @property
     def brief_policy(self):
@@ -94,11 +146,33 @@ class Descriptor(DescriptorBase):
                 self.wsh,
                 None,
                 self.wpkh,
+                self.taproot,
             )
         else:
             return type(self)(
-                None, self.sh, self.wsh, self.key.derive(idx, branch_index), self.wpkh
+                None, self.sh, self.wsh, self.key.derive(idx, branch_index), self.wpkh, self.taproot
             )
+
+    def owns(self, psbt_scope):
+        """Checks if psbt input or output belongs to this descriptor"""
+        # we can't check if we don't know script_pubkey
+        if psbt_scope.script_pubkey is None:
+            return False
+        # quick check of script_pubkey type
+        if psbt_scope.script_pubkey.script_type() != self.scriptpubkey_type():
+            return False
+        for pub, der in psbt_scope.bip32_derivations.items():
+            # check of the fingerprints
+            for k in self.keys:
+                if not k.is_extended:
+                    continue
+                res = k.check_derivation(der)
+                if res:
+                    idx, branch_idx = res
+                    sc = self.derive(idx, branch_index=branch_idx).script_pubkey()
+                    # if derivation is found but scriptpubkey doesn't match - fail
+                    return (sc == psbt_scope.script_pubkey)
+        return False
 
     def check_derivation(self, derivation_path):
         for k in self.keys:
@@ -125,6 +199,8 @@ class Descriptor(DescriptorBase):
 
     def script_pubkey(self):
         # covers sh-wpkh, sh and sh-wsh
+        if self.taproot:
+            return script.p2tr(self.key)
         if self.sh:
             return script.p2sh(self.redeem_script())
         if self.wsh:
@@ -149,7 +225,7 @@ class Descriptor(DescriptorBase):
         s = BytesIO(desc.encode())
         res = cls.read_from(s)
         left = s.read()
-        if len(left) > 0:
+        if len(left) > 0 and not left.startswith(b"#"):
             raise DescriptorError("Unexpected characters after descriptor: %r" % left)
         return res
 
@@ -161,7 +237,12 @@ class Descriptor(DescriptorBase):
         wsh = False
         wpkh = False
         is_miniscript = True
-        if start.startswith(b"sh(wsh("):
+        taproot = False
+        if start.startswith(b"tr("):
+            taproot = True
+            is_miniscript = False
+            s.seek(-4, 1)
+        elif start.startswith(b"sh(wsh("):
             sh = True
             wsh = True
         elif start.startswith(b"wsh("):
@@ -192,14 +273,16 @@ class Descriptor(DescriptorBase):
             nbrackets = int(sh) + int(wsh)
         else:
             miniscript = None
-            key = Key.read_from(s)
+            key = Key.read_from(s, taproot=taproot)
             nbrackets = 1 + int(sh)
         end = s.read(nbrackets)
         if end != b")" * nbrackets:
             raise ValueError("Invalid descriptor")
-        return cls(miniscript, sh=sh, wsh=wsh, key=key, wpkh=wpkh)
+        return cls(miniscript, sh=sh, wsh=wsh, key=key, wpkh=wpkh, taproot=taproot)
 
     def to_string(self):
+        if self.taproot:
+            return "tr(%s)" % self.key
         if self.miniscript is not None:
             res = str(self.miniscript)
             if self.wsh:
